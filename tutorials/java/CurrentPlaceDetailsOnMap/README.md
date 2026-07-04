@@ -7,7 +7,7 @@ This sample goes hand in hand with a tutorial for the Google Maps Android API:
 Prerequisites
 --------------
 
-- Android SDK v31
+- Android API level 21+
 - Latest Android Build Tools
 - Android Support Repository
 - Google Repository
@@ -26,7 +26,7 @@ This sample uses the Gradle build system.
 1. If prompted for a gradle configuration, accept the default settings.
   Alternatively use the `gradlew build` command to build the project directly.
 
-This demo app requires that you add your own Google Maps API key. See [Get an API Key](../../../docs/GET_AN_API_KEY.md) for more instructions.
+This demo app requires that you add your own Google Maps API key. See [Get an API key](https://developers.google.com/maps/documentation/android-sdk/get-api-key) for more instructions.
 
 Support
 -------
@@ -34,7 +34,7 @@ Support
 - Stack Overflow: https://stackoverflow.com/questions/tagged/android+google-maps
 
 If you have discovered an issue with the Google Maps Android API v2, please see
-the resources here: https://developers.google.com/maps/documentation/android-api/support
+the resources here: https://developers.google.com/maps/documentation/android-sdk/support
 
 If you've found an error in these samples, please file an issue:
 https://github.com/googlemaps/android-samples/issues
