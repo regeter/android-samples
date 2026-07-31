@@ -59,6 +59,11 @@ class MainActivity : SamplesBaseActivity(), AdapterView.OnItemClickListener {
             Toast.makeText(this, "Add your own API key in secrets.properties as MAPS_API_KEY=YOUR_API_KEY", Toast.LENGTH_LONG).show()
         }
         applyInsets(findViewById(R.id.map_container))
+
+        // Launch MapLoadTestLoaderActivity by default on first create
+        if (savedInstanceState == null) {
+            startActivity(Intent(this, MapLoadTestLoaderActivity::class.java))
+        }
     }
 
     /**

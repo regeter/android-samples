@@ -1,0 +1,19 @@
+[
+  { "featureType": "landscape.man_made", "elementType": "geometry.fill", "stylers": [ { "color": "#111111" } ] },
+  { "featureType": "poi.business", "elementType": "geometry.fill", "stylers": [ { "color": "#222222" } ] },
+  { "featureType": "poi.government", "elementType": "geometry.fill", "stylers": [ { "color": "#333333" } ] },
+  { "featureType": "poi.medical", "elementType": "geometry.fill", "stylers": [ { "color": "#444444" } ] },
+  { "featureType": "poi.park", "elementType": "geometry.fill", "stylers": [ { "color": "#555555" } ] },
+  { "featureType": "poi.place_of_worship", "elementType": "geometry.fill", "stylers": [ { "color": "#666666" } ] },
+  { "featureType": "poi.school", "elementType": "geometry.fill", "stylers": [ { "color": "#777777" } ] },
+  { "featureType": "poi.sports_complex", "elementType": "geometry.fill", "stylers": [ { "color": "#888888" } ] },
+  { "featureType": "transit.station.airport", "elementType": "geometry.fill", "stylers": [ { "color": "#999999" } ] },
+  { "featureType": "transit.station.bus", "elementType": "geometry.fill", "stylers": [ { "color": "#aaaaaa" } ] },
+  { "featureType": "transit.station.rail", "elementType": "geometry.fill", "stylers": [ { "color": "#bbbbbb" } ] },
+  { "featureType": "landscape.natural", "elementType": "geometry.fill", "stylers": [ { "color": "#cccccc" } ] },
+  { "featureType": "administrative.locality", "elementType": "geometry.fill", "stylers": [ { "color": "#dddddd" } ] },
+  { "featureType": "administrative.neighborhood", "elementType": "geometry.fill", "stylers": [ { "color": "#eeeeee" } ] },
+  { "featureType": "poi.attraction", "elementType": "geometry.fill", "stylers": [ { "color": "#ff0000" } ] },
+  { "featureType": "water", "elementType": "geometry.fill", "stylers": [ { "color": "#00ff00" } ] },
+  { "featureType": "transit.line", "elementType": "geometry.fill", "stylers": [ { "color": "#0000ff" } ] }
+]

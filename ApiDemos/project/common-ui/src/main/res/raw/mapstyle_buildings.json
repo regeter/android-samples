@@ -1,0 +1,5 @@
+[
+  { "featureType": "landscape.man_made", "elementType": "geometry.fill", "stylers": [ { "color": "#FF0000" } ] },
+  { "featureType": "landscape.man_made", "elementType": "geometry.stroke", "stylers": [ { "color": "#00FF00" } ] },
+  { "featureType": "poi", "elementType": "geometry.fill", "stylers": [ { "color": "#0000FF" } ] }
+]

@@ -22,6 +22,10 @@
 
     <string name="alpha">Alpha</string>
     <string name="animate">Animate</string>
+    <string name="crash_repro_demo_label">Crash Repro Demo</string>
+    <string name="crash_repro_demo_description">Reproduces crash in BuildingPainter.</string>
+    <string name="map_load_test_demo_label">Map Setup Load Tester</string>
+    <string name="map_load_test_demo_description">Load tests initial map and street view setup on 30 well-known locations.</string>
     <string name="basic_map_demo_label">Basic Map</string>
     <string name="basic_map_demo_description">Launches a map.</string>
     <string name="buildings">Buildings</string>

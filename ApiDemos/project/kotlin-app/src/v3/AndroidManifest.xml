@@ -32,6 +32,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".MapLoadTestLoaderActivity" />
+        <activity android:name=".MapLoadTestActivity" />
         <activity android:name=".BasicMapDemoActivity" />
         <activity android:name=".CameraDemoActivity"/>
         <activity android:name=".CircleDemoActivity" />

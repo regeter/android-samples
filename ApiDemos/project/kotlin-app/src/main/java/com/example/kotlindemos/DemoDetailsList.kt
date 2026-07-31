@@ -23,6 +23,16 @@ class DemoDetailsList {
     companion object {
         val DEMOS = listOf(
             DemoDetails(
+                com.example.common_ui.R.string.crash_repro_demo_label,
+                com.example.common_ui.R.string.crash_repro_demo_description,
+                CrashReproductionActivity::class.java
+            ),
+            DemoDetails(
+                com.example.common_ui.R.string.map_load_test_demo_label,
+                com.example.common_ui.R.string.map_load_test_demo_description,
+                MapLoadTestLoaderActivity::class.java
+            ),
+            DemoDetails(
                 com.example.common_ui.R.string.advanced_markers_demo_label,
                 com.example.common_ui.R.string.advanced_markers_demo_details,
                 AdvancedMarkersDemoActivity::class.java
