@@ -90,7 +90,12 @@ class CrashReproductionActivity : SamplesBaseActivity(), OnMapReadyCallback {
 
         // Focus on Sennhof initially
         val sennhof = LatLng(47.4678, 8.757970)
-        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(sennhof, 18.0f))
+        val initialCameraPosition = CameraPosition.Builder()
+            .target(sennhof)
+            .zoom(18.0f)
+            .tilt(60.0f)
+            .build()
+        googleMap.moveCamera(CameraUpdateFactory.newCameraPosition(initialCameraPosition))
         
         googleMap.setOnCameraMoveStartedListener { reason ->
             if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) {
@@ -199,11 +204,18 @@ class CrashReproductionActivity : SamplesBaseActivity(), OnMapReadyCallback {
     private fun tiltCamera(googleMap: GoogleMap) {
         if (!isTourActive) return
         val currentPosition = googleMap.cameraPosition
-        val tiltedUp = CameraPosition.Builder(currentPosition).tilt(60f).build()
+        val baseZoom = currentPosition.zoom
+        val tiltedUp = CameraPosition.Builder(currentPosition)
+            .zoom((baseZoom - 0.75f).coerceAtLeast(2.0f))
+            .tilt(60f)
+            .build()
         googleMap.animateCamera(CameraUpdateFactory.newCameraPosition(tiltedUp), 1000, object : GoogleMap.CancelableCallback {
             override fun onFinish() {
                 scheduleNextAction(1000) {
-                    val tiltedDown = CameraPosition.Builder(googleMap.cameraPosition).tilt(0f).build()
+                    val tiltedDown = CameraPosition.Builder(googleMap.cameraPosition)
+                        .zoom(baseZoom)
+                        .tilt(0f)
+                        .build()
                     googleMap.animateCamera(CameraUpdateFactory.newCameraPosition(tiltedDown), 1000, object : GoogleMap.CancelableCallback {
                         override fun onFinish() {
                             scheduleNextAction(1000) {

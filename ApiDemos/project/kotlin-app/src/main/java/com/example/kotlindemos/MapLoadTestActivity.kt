@@ -12,6 +12,7 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.SupportStreetViewPanoramaFragment
+import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import kotlin.random.Random
 
@@ -20,20 +21,34 @@ class MapLoadTestActivity : SamplesBaseActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var countdown = 3
     private lateinit var statusTextView: TextView
+    private lateinit var chosenMode: String
+    private lateinit var location: NamedLatLng
+    private var googleMap: GoogleMap? = null
+    private var buildingsEnabled = false
+    private var currentTilt = 0f
+    private var baseZoom = 18.0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val locationIndex = intent.getIntExtra("LOCATION_INDEX", 0)
-        val location = LOCATIONS.getOrElse(locationIndex) { LOCATIONS[0] }
+        location = LOCATIONS.getOrElse(locationIndex) { LOCATIONS[0] }
 
         val rootLayout = FrameLayout(this).apply {
             id = View.generateViewId()
         }
         setContentView(rootLayout)
 
-        val chosenMode = intent.getStringExtra("CHOSEN_MODE") ?: listOf("NORMAL", "SATELLITE", "HYBRID", "TERRAIN", "STREET_VIEW").random()
-        val buildingsEnabled = Random.nextBoolean()
+        chosenMode = intent.getStringExtra("CHOSEN_MODE") ?: listOf("NORMAL", "SATELLITE", "HYBRID", "TERRAIN", "STREET_VIEW").random()
+
+        val supportsTilt = chosenMode != "STREET_VIEW"
+        val supports3DBuildings = chosenMode == "NORMAL"
+
+        countdown = 3
+        if (supportsTilt) countdown += 2
+        if (supports3DBuildings) countdown += 1
+
+        buildingsEnabled = supports3DBuildings
 
         statusTextView = TextView(this).apply {
             setBackgroundColor(Color.parseColor("#CC000000"))
@@ -41,8 +56,8 @@ class MapLoadTestActivity : SamplesBaseActivity() {
             setPadding(32, 32, 32, 32)
             textSize = 16f
             gravity = Gravity.CENTER_HORIZONTAL
-            text = "Loading...\nLocation: ${location.name}\nMode: $chosenMode\nBuildings: ${if (buildingsEnabled) "ON" else "OFF"}\nRemaining: ${countdown}s"
         }
+        updateStatus()
 
         val textParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -67,30 +82,110 @@ class MapLoadTestActivity : SamplesBaseActivity() {
             supportFragmentManager.beginTransaction()
                 .replace(rootLayout.id, fragment)
                 .commit()
-            fragment.getMapAsync { googleMap ->
-                googleMap.isBuildingsEnabled = buildingsEnabled
-                googleMap.isTrafficEnabled = Random.nextBoolean()
-                googleMap.mapType = when (chosenMode) {
+            fragment.getMapAsync { map ->
+                this.googleMap = map
+                map.isBuildingsEnabled = buildingsEnabled
+                map.isTrafficEnabled = Random.nextBoolean()
+                map.mapType = when (chosenMode) {
                     "SATELLITE" -> GoogleMap.MAP_TYPE_SATELLITE
                     "HYBRID" -> GoogleMap.MAP_TYPE_HYBRID
                     "TERRAIN" -> GoogleMap.MAP_TYPE_TERRAIN
                     else -> GoogleMap.MAP_TYPE_NORMAL
                 }
-                val zoom = if (buildingsEnabled && chosenMode == "NORMAL") 18.0f else 15.0f
-                googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(location.latLng, zoom))
+                baseZoom = if (supports3DBuildings) 18.0f else 15.0f
+                val cameraPosition = CameraPosition.Builder()
+                    .target(location.latLng)
+                    .zoom(baseZoom)
+                    .tilt(0f)
+                    .build()
+                map.moveCamera(CameraUpdateFactory.newCameraPosition(cameraPosition))
                 startCountdown()
+
+                if (supportsTilt) {
+                    scheduleTiltAndBuildingsActions(map, supports3DBuildings)
+                }
             }
         }
 
         statusTextView.bringToFront()
     }
 
+    private fun scheduleTiltAndBuildingsActions(map: GoogleMap, supports3DBuildings: Boolean) {
+        // Start tilt up and zoom out after 1 second
+        handler.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            val targetZoomOut = (baseZoom - 0.75f).coerceAtLeast(2.0f)
+            val tiltedUp = CameraPosition.Builder(map.cameraPosition)
+                .zoom(targetZoomOut)
+                .tilt(60f)
+                .build()
+            map.animateCamera(CameraUpdateFactory.newCameraPosition(tiltedUp), 1000, object : GoogleMap.CancelableCallback {
+                override fun onFinish() {
+                    currentTilt = 60f
+                    updateStatus()
+
+                    if (supports3DBuildings) {
+                        // Disable 3D buildings, wait 500ms, re-enable 3D buildings, wait 500ms, then tilt down
+                        handler.postDelayed({
+                            if (isFinishing || isDestroyed) return@postDelayed
+                            map.isBuildingsEnabled = false
+                            buildingsEnabled = false
+                            updateStatus()
+
+                            handler.postDelayed({
+                                if (isFinishing || isDestroyed) return@postDelayed
+                                map.isBuildingsEnabled = true
+                                buildingsEnabled = true
+                                updateStatus()
+
+                                handler.postDelayed({
+                                    tiltDown(map)
+                                }, 500)
+                            }, 500)
+                        }, 500)
+                    } else {
+                        handler.postDelayed({
+                            tiltDown(map)
+                        }, 500)
+                    }
+                }
+
+                override fun onCancel() {}
+            })
+        }, 1000)
+    }
+
+    private fun tiltDown(map: GoogleMap) {
+        if (isFinishing || isDestroyed) return
+        val tiltedDown = CameraPosition.Builder(map.cameraPosition)
+            .zoom(baseZoom)
+            .tilt(0f)
+            .build()
+        map.animateCamera(CameraUpdateFactory.newCameraPosition(tiltedDown), 1000, object : GoogleMap.CancelableCallback {
+            override fun onFinish() {
+                currentTilt = 0f
+                updateStatus()
+            }
+
+            override fun onCancel() {}
+        })
+    }
+
+    private fun updateStatus() {
+        val buildingsStr = if (chosenMode == "NORMAL") {
+            if (buildingsEnabled) "ON" else "OFF"
+        } else {
+            "N/A"
+        }
+        val tiltStr = if (chosenMode != "STREET_VIEW") "${currentTilt.toInt()}°" else "N/A"
+        statusTextView.text = "Loading...\nLocation: ${location.name}\nMode: $chosenMode\nBuildings: $buildingsStr\nTilt: $tiltStr\nRemaining: ${countdown}s"
+    }
+
     private fun startCountdown() {
         handler.postDelayed(object : Runnable {
             override fun run() {
                 countdown--
-                val currentText = statusTextView.text.toString()
-                statusTextView.text = currentText.substringBefore("Remaining: ") + "Remaining: ${countdown}s"
+                updateStatus()
 
                 if (countdown <= 0) {
                     finish()
@@ -103,6 +198,7 @@ class MapLoadTestActivity : SamplesBaseActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        googleMap?.stopAnimation()
         super.onDestroy()
     }
 

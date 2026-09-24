@@ -22,11 +22,11 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
     private var isTestingActive = false
     private var iterationCount = 0
 
-    private var normalWeight = 50
-    private var satelliteWeight = 15
-    private var hybridWeight = 15
-    private var terrainWeight = 15
-    private var streetViewWeight = 5
+    private var normalWeight = 70
+    private var satelliteWeight = 5
+    private var hybridWeight = 25
+    private var terrainWeight = 0
+    private var streetViewWeight = 0
 
     private lateinit var statusTextView: TextView
     private lateinit var toggleButton: Button
