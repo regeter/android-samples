@@ -22,6 +22,8 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
+import android.view.SurfaceView
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -129,6 +131,8 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     private lateinit var tvMapViewAge: TextView
     private lateinit var tvProgramsLinked: TextView
     private lateinit var tvShaderCache: TextView
+    private lateinit var tvGlViewClass: TextView
+    private lateinit var tvContextResets: TextView
     private lateinit var rgMode: RadioGroup
     private lateinit var btnStartStop: Button
     private lateinit var btnToggleMap: Button
@@ -154,6 +158,9 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     private var currentMapView: MapView? = null
     private var currentGoogleMap: GoogleMap? = null
     private var currentMapViewStartTime = 0L
+    private var glViewClassName: String = "Detecting..."
+    private var contextResetCount: Long = 0L
+    private val isMapTilesLoaded = AtomicBoolean(false)
 
     // Trap Lock Window State
     private val isTrapLocked = AtomicBoolean(false)
@@ -210,6 +217,8 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         tvMapViewAge = findViewById(R.id.tvMapViewAge)
         tvProgramsLinked = findViewById(R.id.tvProgramsLinked)
         tvShaderCache = findViewById(R.id.tvShaderCache)
+        tvGlViewClass = findViewById(R.id.tvGlViewClass)
+        tvContextResets = findViewById(R.id.tvContextResets)
         rgMode = findViewById(R.id.rgMode)
         btnStartStop = findViewById(R.id.btnStartStop)
         btnToggleMap = findViewById(R.id.btnToggleMap)
@@ -387,17 +396,25 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     private fun startMapViewLifecycleLoop() {
         mapLifecycleJob = lifecycleScope.launch {
             while (isActive && isLoopRunning.get()) {
-                loopCount++
-                tvLoopCount.text = "Loops: $loopCount"
-
-                if (currentMapView == null) {
+                val mv = currentMapView
+                if (mv == null) {
                     createNewMapView()
+                    delay(500)
+                    continue
                 }
 
-                val cycleStartTime = SystemClock.elapsedRealtime()
-                var lastCameraToggleTime = cycleStartTime
-                var lastPauseResumePulseTime = cycleStartTime
-                var lastResizePulseTime = cycleStartTime
+                // If tiles are not yet loaded in RAM, wait for them to load
+                if (!isMapTilesLoaded.get()) {
+                    log("Waiting for vector tiles to load into RAM before starting EGLContext reset hammer...")
+                    var waitCount = 0
+                    while (isActive && isLoopRunning.get() && !isMapTilesLoaded.get() && waitCount < 40) {
+                        delay(100)
+                        waitCount++
+                    }
+                    if (isMapTilesLoaded.get()) {
+                        log("Vector tiles confirmed in RAM! Beginning 200ms c() EGLContext reset hammer.")
+                    }
+                }
 
                 while (isActive && isLoopRunning.get()) {
                     val now = SystemClock.elapsedRealtime()
@@ -407,53 +424,44 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
                         val elapsedInTrap = now - trapWindowStartTime
                         if (elapsedInTrap < TRAP_WINDOW_MS) {
                             // CRITICAL TRAP MODE:
-                            // Keep GmmRenderTarget ALIVE and hammer it with 50ms camera jitters and layout resizes!
-                            executeTrapWindowStressTick()
+                            // Keep GmmRenderTarget ALIVE and hammer it with 50ms c() resets and camera micro-nudges!
+                            AdrenoShaderStressEngine.clearShaderCache(this@MainActivity)
+                            forceMapEglContextReset(mv)
+                            val nudge = if (resizeToggle) 1f else -1f
+                            resizeToggle = !resizeToggle
+                            try {
+                                currentGoogleMap?.moveCamera(CameraUpdateFactory.scrollBy(nudge, nudge))
+                            } catch (_: Exception) {}
                             delay(50)
                             continue
                         } else {
                             // Trap window expired without second hit
                             isTrapLocked.set(false)
-                            log("[Trap] 10-second recovery window elapsed. Unlocking MapView recreation cycle.")
+                            log("[Trap] 10-second recovery window elapsed. Re-arming trap.")
                             tvAlertBanner.setBackgroundColor(Color.parseColor("#2E7D32"))
                             tvAlertBanner.text = "STATUS: RUNNING | Trap Rearmed after 10s Window"
                         }
                     }
 
-                    // 1. Toggle camera between textured area hotspots every 2500ms
-                    if (now - lastCameraToggleTime >= 2500L) {
-                        lastCameraToggleTime = now
-                        toggleMapLocation()
-                    }
-
-                    // 2. Normal cycle: surface resize pulse every 250ms (+/- 2px forces GLViewThreadImpl.surfaceResized)
-                    if (now - lastResizePulseTime >= 250L) {
-                        lastResizePulseTime = now
-                        pulseMapViewResize()
-                    }
-
-                    // 3. Normal cycle: lifecycle onPause/onResume pulse every 1250ms (keeps GmmRenderTarget!)
-                    if (now - lastPauseResumePulseTime >= 1250L) {
-                        lastPauseResumePulseTime = now
-                        pulseMapViewLifecycle()
-                    }
-
-                    // End cycle after MAPVIEW_CYCLE_MS (10s) unless locked in trap
-                    if (now - cycleStartTime >= MAPVIEW_CYCLE_MS) {
-                        break
-                    }
-
-                    delay(100)
-                }
-
-                // If not locked in trap, purge caches and cycle to fresh MapView instance
-                if (!isTrapLocked.get()) {
-                    val (pBytes, pFiles) = AdrenoShaderStressEngine.clearMapsParametersAndTileCaches(this@MainActivity)
+                    // Normal Hammer Cycle (every 200ms = 5 times per second):
+                    // 1. Delete shader disk cache so glLinkProgram must re-run without driver disk cache
                     AdrenoShaderStressEngine.clearShaderCache(this@MainActivity)
-                    log("[AutoPurge] Cleared $pFiles cached Maps files ($pBytes bytes) between cycles.")
-                    updateShaderCacheTelemetry()
 
-                    createNewMapView()
+                    // 2. Invoke c() on GL child view (m140.flw / m140.fly) to destroy EGLContext and force GlContext.onEglContextLost()
+                    forceMapEglContextReset(mv)
+
+                    // 3. Nudge camera slightly by 1px to force onDrawFrame() to execute immediately
+                    val nudge = if (resizeToggle) 1f else -1f
+                    resizeToggle = !resizeToggle
+                    try {
+                        currentGoogleMap?.moveCamera(CameraUpdateFactory.scrollBy(nudge, nudge))
+                    } catch (_: Exception) {}
+
+                    loopCount++
+                    tvLoopCount.text = "Loops: $loopCount"
+
+                    // Hammer every 200ms
+                    delay(200)
                 }
             }
         }
@@ -461,6 +469,7 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
 
     private fun createNewMapView() {
         destroyCurrentMapView()
+        isMapTilesLoaded.set(false)
 
         val mapView = MapView(this)
         currentMapView = mapView
@@ -481,9 +490,17 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
                 currentGoogleMap = googleMap
                 log("Map ready: ${googleMap.cameraPosition.target}")
                 googleMap.setOnMapLoadedCallback {
-                    log("Map vector tiles fully loaded.")
+                    isMapTilesLoaded.set(true)
+                    log("✓ Vector tiles in RAM! Ready for EGLContext reset hammer.")
                 }
                 configureGoogleMap(googleMap)
+
+                mapView.post {
+                    findMapGlView(mapView)?.let {
+                        glViewClassName = it.javaClass.name
+                        log("Detected Map GL View: $glViewClassName")
+                    }
+                }
             }
         }
     }
@@ -515,6 +532,48 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
             } catch (_: Exception) {
                 map.moveCamera(CameraUpdateFactory.newLatLngZoom(target.latLng, target.zoom))
             }
+        }
+    }
+
+    private fun findMapGlView(root: View): View? {
+        if (root is SurfaceView || root is TextureView) {
+            return root
+        }
+        if (root.javaClass.name.contains("GLSurfaceView", ignoreCase = true) ||
+            root.javaClass.name.contains("GLTextureView", ignoreCase = true) ||
+            root.javaClass.name.endsWith(".flw") ||
+            root.javaClass.name.endsWith(".fly")
+        ) {
+            return root
+        }
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                findMapGlView(root.getChildAt(i))?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun forceMapEglContextReset(mapView: MapView): Boolean {
+        val glView = findMapGlView(mapView) ?: return false
+        glViewClassName = glView.javaClass.name
+        return try {
+            // In maps_core_dynamite 263020506, m140.flw.c() / m140.fly.c() is forceEGLContextReset()
+            val resetMethod = runCatching { glView.javaClass.getMethod("c") }.getOrNull()
+                ?: runCatching { glView.javaClass.getMethod("forceEGLContextReset") }.getOrNull()
+
+            if (resetMethod != null) {
+                resetMethod.isAccessible = true
+                resetMethod.invoke(glView)
+                contextResetCount++
+                true
+            } else {
+                Log.w(TAG, "No reset method c() found on ${glView.javaClass.name}")
+                false
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to invoke c() on ${glView.javaClass.name}: ${t.message}")
+            false
         }
     }
 
@@ -670,6 +729,10 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
 
                 // Synthetic programs linked
                 tvProgramsLinked.text = "Shaders: ${stressEngine.programsLinkedCount}"
+
+                // GL View Class and c() reset count
+                tvGlViewClass.text = "GL: ${glViewClassName.substringAfterLast('.')}"
+                tvContextResets.text = "c() Resets: $contextResetCount"
 
                 // Trap countdown banner update if locked
                 if (isTrapLocked.get()) {

@@ -84,6 +84,31 @@
             android:textColor="#90CAF9"
             android:textSize="11sp"
             android:text="Shader Disk Cache: 0 B (0 files)" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="3dp">
+
+            <TextView
+                android:id="@+id/tvGlViewClass"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.2"
+                android:textColor="#FFB74D"
+                android:textSize="11sp"
+                android:text="GL View: Detecting..." />
+
+            <TextView
+                android:id="@+id/tvContextResets"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#FF8A80"
+                android:textSize="11sp"
+                android:text="c() Resets: 0" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Contention Mode Selector -->
