@@ -69,4 +69,8 @@ project(":snippets:app-utils").projectDir = file("snippets/app-utils")
 // Tutorials
 include(":tutorials:kotlin:Polygons")
 project(":tutorials:kotlin:Polygons").projectDir = file("tutorials/kotlin/Polygons/app")
+
+// ShaderRepro Diagnostic App
+include(":ShaderRepro:app")
+project(":ShaderRepro:app").projectDir = file("ShaderRepro/app")
 // Add others as needed, starting with these for now

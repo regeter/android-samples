@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Adreno Shader Crash Repro</string>
+    <string name="mode_a">Mode A: Ads + WebGL</string>
+    <string name="mode_b">Mode B: Synthetic Stress</string>
+    <string name="mode_c">Mode C: Combined (A+B)</string>
+    <string name="btn_start">Start Repro Loop</string>
+    <string name="btn_stop">Stop Repro Loop</string>
+    <string name="btn_trim_memory">Force TrimMemory</string>
+    <string name="btn_clear_cache">Clear Shader Cache</string>
+</resources>
