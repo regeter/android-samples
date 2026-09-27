@@ -319,7 +319,7 @@ class AdrenoShaderStressEngine(
                         tex1 = uStyleTextures[i * NUM_UNIFORMS_PER_STYLE_TEXTURE + 1];
                     }
                 }
-                int mapIdx = int(aStyleInfo.b) & 15;
+                int mapIdx = int(mod(aStyleInfo.b, 16.0));
                 styleEntry = styleEntry + uStyleColorMap[mapIdx];
                 tex0 = tex0 + uStyleTextureMap[mapIdx * 2];
                 tex1 = tex1 + uStyleTextureMap[mapIdx * 2 + 1];
@@ -328,7 +328,7 @@ class AdrenoShaderStressEngine(
                 vColor = Ivec2ToRgba(styleColor);
                 vTexCoord = aPosition.xy * uTileScale + uTileCoords;
 
-                const float SEED_F = float(${seed % 1000000L}) * 0.000001;
+                float SEED_F = ${seed % 1000000L}.0 * 0.000001;
                 gl_Position = uMVPMatrix * aPosition + vec4(SEED_F, SEED_F * 0.5, 0.0, 0.0);
             }
         """.trimIndent()
@@ -353,7 +353,7 @@ class AdrenoShaderStressEngine(
                 } else if (uBlendMode == 3) {
                     texColor = texColor + texture2D(uTexture1, vTexCoord) * 0.25;
                 }
-                const float SEED_F = float(${seed % 1000000L}) * 0.000001;
+                float SEED_F = ${seed % 1000000L}.0 * 0.000001;
                 gl_FragColor = texColor * vColor + vec4(SEED_F, 0.0, SEED_F * 0.25, 0.0);
             }
         """.trimIndent()

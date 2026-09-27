@@ -174,6 +174,12 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        bindViews()
+        setupEngines()
+        setupListeners()
+        setupAdsAndWebView()
+        updateShaderCacheTelemetry()
+
         // 1. Initialize Maps SDK with LATEST renderer to load maps_core_dynamite (enableTexturedAreas = true)
         MapsInitializer.initialize(applicationContext, MapsInitializer.Renderer.LATEST, this)
 
@@ -185,12 +191,6 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         } catch (e: Exception) {
             Log.e(TAG, "MobileAds initialization error: ${e.message}")
         }
-
-        bindViews()
-        setupEngines()
-        setupListeners()
-        setupAdsAndWebView()
-        updateShaderCacheTelemetry()
     }
 
     private fun bindViews() {
@@ -671,12 +671,17 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     }
 
     private fun log(message: String) {
+        Log.i(TAG, message)
         val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
         val formatted = "[$time] $message\n"
         runOnUiThread {
-            tvConsoleLog.append(formatted)
-            logScrollView.post {
-                logScrollView.fullScroll(View.FOCUS_DOWN)
+            if (::tvConsoleLog.isInitialized) {
+                tvConsoleLog.append(formatted)
+                if (::logScrollView.isInitialized) {
+                    logScrollView.post {
+                        logScrollView.fullScroll(View.FOCUS_DOWN)
+                    }
+                }
             }
         }
     }

@@ -121,6 +121,12 @@ class LogcatResetDetector(
     }
 
     private fun isRelevantLogLine(line: String): Boolean {
+        if (line.contains("ShaderCrashRepro", ignoreCase = true) ||
+            line.contains("LogcatResetDetector", ignoreCase = true) ||
+            line.contains("[Logcat]", ignoreCase = true)
+        ) {
+            return false
+        }
         return line.contains("GL context", ignoreCase = true) ||
                 line.contains("GmmRenderTarget", ignoreCase = true) ||
                 line.contains("GmmConfigurable", ignoreCase = true) ||
