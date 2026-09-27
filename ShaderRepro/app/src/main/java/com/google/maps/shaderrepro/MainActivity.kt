@@ -59,17 +59,20 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     companion object {
         private const val TAG = "ShaderCrashRepro"
 
-        private data class Hotspot(val name: String, val latLng: LatLng, val zoom: Float)
+        private data class Hotspot(val name: String, val latLng: LatLng, val zoom: Float, val type: String)
 
-        // Four hotspots rich in textured areas and hatched polygon boundaries
+        // legend.textpb active textured polygon hotspots:
+        // 1. CSFT_PARKING_LOT: "cartographic/parking_lot_stripes" at Zoom >= 17.0
+        // 2. CSFT_PEDESTRIAN_MALL: "cartographic/sidewalk_light_1" at Zoom >= 18.0
+        // 3. TYPE_RESERVATION: "cartographic/parking_lot_stripes" at Zoom 6.0 to 10.0
         private val HOTSPOTS = listOf(
-            Hotspot("Golden Gate Park (SF)", LatLng(37.7694, -122.4862), 15.5f),
-            Hotspot("Central Park (NYC)", LatLng(40.7812, -73.9665), 15.5f),
-            Hotspot("Hyde Park (London)", LatLng(51.5073, -0.1657), 15.5f),
-            Hotspot("Jammu/Kashmir Border", LatLng(34.1526, 77.5771), 14.5f)
+            Hotspot("Disneyland Parking (`CSFT_PARKING_LOT`)", LatLng(33.8030, -117.9150), 17.8f, "ParkingLot"),
+            Hotspot("Dodger Stadium Parking (`CSFT_PARKING_LOT`)", LatLng(34.0739, -118.2400), 17.8f, "ParkingLot"),
+            Hotspot("MetLife Stadium Parking (`CSFT_PARKING_LOT`)", LatLng(40.8135, -74.0745), 17.8f, "ParkingLot"),
+            Hotspot("Times Square Mall (`CSFT_PEDESTRIAN_MALL`)", LatLng(40.7580, -73.9855), 18.8f, "PedestrianMall"),
+            Hotspot("Navajo Nation (`TYPE_RESERVATION`)", LatLng(36.1500, -109.8500), 8.0f, "Reservation")
         )
 
-        private const val MAPVIEW_CYCLE_MS = 10000L
         private const val TRAP_WINDOW_MS = 10000L
 
         private const val WEBGL_HTML = """
@@ -125,6 +128,13 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         MODE_C  // Combined A + B
     }
 
+    data class ShaderCacheStatus(
+        val totalShaders: Int,
+        val hasTargetShader: Boolean,
+        val targetProgramId: Int,
+        val shaderNames: List<String>
+    )
+
     // UI Elements
     private lateinit var tvAlertBanner: TextView
     private lateinit var tvLoopCount: TextView
@@ -133,6 +143,7 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     private lateinit var tvShaderCache: TextView
     private lateinit var tvGlViewClass: TextView
     private lateinit var tvContextResets: TextView
+    private lateinit var tvTargetShaderStatus: TextView
     private lateinit var rgMode: RadioGroup
     private lateinit var btnStartStop: Button
     private lateinit var btnToggleMap: Button
@@ -219,6 +230,7 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         tvShaderCache = findViewById(R.id.tvShaderCache)
         tvGlViewClass = findViewById(R.id.tvGlViewClass)
         tvContextResets = findViewById(R.id.tvContextResets)
+        tvTargetShaderStatus = findViewById(R.id.tvTargetShaderStatus)
         rgMode = findViewById(R.id.rgMode)
         btnStartStop = findViewById(R.id.btnStartStop)
         btnToggleMap = findViewById(R.id.btnToggleMap)
@@ -364,9 +376,6 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
 
         // Start Smart MapView Lifecycle & Trap loop
         startMapViewLifecycleLoop()
-
-        // Start HUD Telemetry updater
-        startHudTelemetry()
     }
 
     private fun stopReproLoop() {
@@ -393,6 +402,50 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     // Smart MapView Lifecycle & 10-Second Reset Window Trap
     // =========================================================================
 
+    private fun inspectMapShaderCache(mapView: MapView): ShaderCacheStatus? {
+        val glView = findMapGlView(mapView) ?: return null
+        return try {
+            val fB = glView.javaClass.getDeclaredField("b").apply { isAccessible = true }
+            val renderTarget = fB.get(glView) ?: return null
+            val fS = renderTarget.javaClass.getDeclaredField("s").apply { isAccessible = true }
+            val entityRenderer = fS.get(renderTarget) ?: return null
+            val fR = entityRenderer.javaClass.getDeclaredField("r").apply { isAccessible = true }
+            val glContext = fR.get(entityRenderer) ?: return null
+            val fP = glContext.javaClass.getDeclaredField("p").apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val shaderCache = fP.get(glContext) as? Map<Class<*>, Any> ?: return null
+
+            val entries = shaderCache.entries.toList()
+            var hasTarget = false
+            var targetProgId = 0
+            val names = mutableListOf<String>()
+
+            for ((cls, progObj) in entries) {
+                val simple = cls.name.substringAfterLast('.')
+                names.add(simple)
+                if (cls.name.contains("GmmConfigurableTextureStyleIdShaderProgram")) {
+                    hasTarget = true
+                    var currClass: Class<*>? = cls
+                    var progId = -1
+                    while (currClass != null && currClass != Any::class.java) {
+                        try {
+                            val fW = currClass.getDeclaredField("w").apply { isAccessible = true }
+                            progId = (fW.get(progObj) as? Int) ?: -1
+                            break
+                        } catch (_: NoSuchFieldException) {
+                            currClass = currClass.superclass
+                        }
+                    }
+                    targetProgId = progId
+                }
+            }
+            ShaderCacheStatus(entries.size, hasTarget, targetProgId, names)
+        } catch (t: Throwable) {
+            Log.w(TAG, "ShaderCache inspection failed: ${t.message}")
+            null
+        }
+    }
+
     private fun startMapViewLifecycleLoop() {
         mapLifecycleJob = lifecycleScope.launch {
             while (isActive && isLoopRunning.get()) {
@@ -403,18 +456,44 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
                     continue
                 }
 
-                // If tiles are not yet loaded in RAM, wait for them to load
-                if (!isMapTilesLoaded.get()) {
-                    log("Waiting for vector tiles to load into RAM before starting EGLContext reset hammer...")
-                    var waitCount = 0
-                    while (isActive && isLoopRunning.get() && !isMapTilesLoaded.get() && waitCount < 40) {
-                        delay(100)
-                        waitCount++
+                // Step 1: Scan active legend.textpb hotspots until GmmConfigurableTextureStyleIdShaderProgram is verified in GlContext.shaderCache
+                log("Scanning active hotspots to verify GmmConfigurableTextureStyleIdShader in GlContext.shaderCache...")
+                var targetConfirmed = false
+
+                for (spotIndex in 0 until HOTSPOTS.size) {
+                    if (!isActive || !isLoopRunning.get()) break
+                    val spot = HOTSPOTS[spotIndex]
+                    hotspotIndex = spotIndex
+                    log("→ Loading hotspot [${spot.name}] (zoom=${spot.zoom}) to trigger configurable textured area...")
+                    runOnUiThread {
+                        currentGoogleMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(spot.latLng, spot.zoom))
                     }
-                    if (isMapTilesLoaded.get()) {
-                        log("Vector tiles confirmed in RAM! Beginning 200ms c() EGLContext reset hammer.")
+
+                    // Dwell up to 3500ms and poll shader cache every 350ms
+                    var dwellMs = 0
+                    while (isActive && isLoopRunning.get() && dwellMs < 3500) {
+                        delay(350)
+                        dwellMs += 350
+
+                        val status = inspectMapShaderCache(mv)
+                        if (status != null && status.hasTargetShader) {
+                            targetConfirmed = true
+                            log("🎯🎯🎯 GmmConfigurableTextureStyleIdShader CONFIRMED ACTIVE in GlContext.shaderCache! (programId=${status.targetProgramId}, total=${status.totalShaders})")
+                            log("🎯 Active shaders: ${status.shaderNames.joinToString()}")
+                            break
+                        }
                     }
+
+                    if (targetConfirmed) break
                 }
+
+                if (!targetConfirmed) {
+                    log("Target shader not yet detected after pass; re-scanning hotspots...")
+                    delay(500)
+                    continue
+                }
+
+                log("🚀 LOCKED on target textured area! Beginning 200ms c() EGLContext reset hammer!")
 
                 while (isActive && isLoopRunning.get()) {
                     val now = SystemClock.elapsedRealtime()
@@ -577,54 +656,6 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         }
     }
 
-    private fun pulseMapViewResize() {
-        val mv = currentMapView ?: return
-        val parentW = mapContainer.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-        val parentH = mapContainer.height.takeIf { it > 0 } ?: (220 * resources.displayMetrics.density).toInt()
-
-        val delta = if (resizeToggle) 2 else -2
-        resizeToggle = !resizeToggle
-
-        val params = FrameLayout.LayoutParams(parentW + delta, parentH + delta)
-        mv.layoutParams = params
-        mv.requestLayout()
-    }
-
-    private suspend fun pulseMapViewLifecycle() {
-        val mv = currentMapView ?: return
-        try {
-            mv.onPause()
-            delay(50)
-            mv.onResume()
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun executeTrapWindowStressTick() {
-        val map = currentGoogleMap
-        val mv = currentMapView ?: return
-
-        // 1. Rapid micro zoom jitter to trigger immediate GL-Map redraw
-        if (map != null) {
-            val target = HOTSPOTS[hotspotIndex % HOTSPOTS.size]
-            val jitterZoom = target.zoom + (if (resizeToggle) 0.08f else -0.08f)
-            try {
-                map.moveCamera(CameraUpdateFactory.newLatLngZoom(target.latLng, jitterZoom))
-            } catch (_: Exception) {
-            }
-        }
-
-        // 2. +/- 1px layout resize to invoke GLViewThreadImpl.surfaceResized()
-        val parentW = mapContainer.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-        val parentH = mapContainer.height.takeIf { it > 0 } ?: (220 * resources.displayMetrics.density).toInt()
-        val delta = if (resizeToggle) 1 else -1
-        resizeToggle = !resizeToggle
-
-        val params = FrameLayout.LayoutParams(parentW + delta, parentH + delta)
-        mv.layoutParams = params
-        mv.requestLayout()
-    }
-
     private fun destroyCurrentMapView() {
         currentGoogleMap = null
         currentMapView?.let { mv ->
@@ -733,6 +764,22 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
                 // GL View Class and c() reset count
                 tvGlViewClass.text = "GL: ${glViewClassName.substringAfterLast('.')}"
                 tvContextResets.text = "c() Resets: $contextResetCount"
+
+                // Poll GlContext.shaderCache status every 500ms
+                if (counter % 5 == 0) {
+                    currentMapView?.let { mv ->
+                        val status = inspectMapShaderCache(mv)
+                        if (status != null) {
+                            if (status.hasTargetShader) {
+                                tvTargetShaderStatus.setTextColor(Color.parseColor("#00E676"))
+                                tvTargetShaderStatus.text = "Target Shader: ACTIVE! (progId=${status.targetProgramId}, ${status.totalShaders} cached)"
+                            } else {
+                                tvTargetShaderStatus.setTextColor(Color.parseColor("#FFD54F"))
+                                tvTargetShaderStatus.text = "Target Shader: Scanning... (${status.totalShaders} shaders cached)"
+                            }
+                        }
+                    }
+                }
 
                 // Trap countdown banner update if locked
                 if (isTrapLocked.get()) {
