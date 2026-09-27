@@ -57,15 +57,17 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     companion object {
         private const val TAG = "ShaderCrashRepro"
 
+        private data class Hotspot(val name: String, val latLng: LatLng, val zoom: Float)
+
         // Four hotspots rich in textured areas and hatched polygon boundaries
         private val HOTSPOTS = listOf(
-            LatLng(37.7694, -122.4862) to 15.5f, // Golden Gate Park, SF
-            LatLng(40.7812, -73.9665) to 15.5f,  // Central Park, NYC
-            LatLng(51.5073, -0.1657) to 15.5f,   // Hyde Park, London
-            LatLng(34.1526, 77.5771) to 14.5f    // Jammu/Kashmir border hatched area
+            Hotspot("Golden Gate Park (SF)", LatLng(37.7694, -122.4862), 15.5f),
+            Hotspot("Central Park (NYC)", LatLng(40.7812, -73.9665), 15.5f),
+            Hotspot("Hyde Park (London)", LatLng(51.5073, -0.1657), 15.5f),
+            Hotspot("Jammu/Kashmir Border", LatLng(34.1526, 77.5771), 14.5f)
         )
 
-        private const val MAPVIEW_CYCLE_MS = 6000L
+        private const val MAPVIEW_CYCLE_MS = 10000L
         private const val TRAP_WINDOW_MS = 10000L
 
         private const val WEBGL_HTML = """
@@ -129,6 +131,7 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     private lateinit var tvShaderCache: TextView
     private lateinit var rgMode: RadioGroup
     private lateinit var btnStartStop: Button
+    private lateinit var btnToggleMap: Button
     private lateinit var btnTrimMemory: Button
     private lateinit var btnClearCache: Button
     private lateinit var btnClearLog: TextView
@@ -209,6 +212,7 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         tvShaderCache = findViewById(R.id.tvShaderCache)
         rgMode = findViewById(R.id.rgMode)
         btnStartStop = findViewById(R.id.btnStartStop)
+        btnToggleMap = findViewById(R.id.btnToggleMap)
         btnTrimMemory = findViewById(R.id.btnTrimMemory)
         btnClearCache = findViewById(R.id.btnClearCache)
         btnClearLog = findViewById(R.id.btnClearLog)
@@ -258,14 +262,19 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
             }
         }
 
+        btnToggleMap.setOnClickListener {
+            toggleMapLocation()
+        }
+
         btnTrimMemory.setOnClickListener {
             log("[TrimMemory] Forcing TRIM_MEMORY_RUNNING_CRITICAL")
             onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
         }
 
         btnClearCache.setOnClickListener {
-            val cleared = AdrenoShaderStressEngine.clearShaderCache(this)
-            log("[Cache] Shader disk cache cleared: $cleared")
+            val shaderCleared = AdrenoShaderStressEngine.clearShaderCache(this)
+            val (pBytes, pFiles) = AdrenoShaderStressEngine.clearMapsParametersAndTileCaches(this)
+            log("[Cache] Purged: $pFiles Maps files ($pBytes bytes), Shaders deleted: $shaderCleared")
             updateShaderCacheTelemetry()
         }
 
@@ -381,10 +390,12 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
                 loopCount++
                 tvLoopCount.text = "Loops: $loopCount"
 
-                // Create and initialize new MapView
-                createNewMapView()
+                if (currentMapView == null) {
+                    createNewMapView()
+                }
 
                 val cycleStartTime = SystemClock.elapsedRealtime()
+                var lastCameraToggleTime = cycleStartTime
                 var lastPauseResumePulseTime = cycleStartTime
                 var lastResizePulseTime = cycleStartTime
 
@@ -409,32 +420,40 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
                         }
                     }
 
-                    // Normal cycle: surface resize pulse every 250ms
+                    // 1. Toggle camera between textured area hotspots every 2500ms
+                    if (now - lastCameraToggleTime >= 2500L) {
+                        lastCameraToggleTime = now
+                        toggleMapLocation()
+                    }
+
+                    // 2. Normal cycle: surface resize pulse every 250ms (+/- 2px forces GLViewThreadImpl.surfaceResized)
                     if (now - lastResizePulseTime >= 250L) {
                         lastResizePulseTime = now
                         pulseMapViewResize()
                     }
 
-                    // Normal cycle: lifecycle onPause/onResume pulse every 1000ms (keeps GmmRenderTarget!)
-                    if (now - lastPauseResumePulseTime >= 1000L) {
+                    // 3. Normal cycle: lifecycle onPause/onResume pulse every 1250ms (keeps GmmRenderTarget!)
+                    if (now - lastPauseResumePulseTime >= 1250L) {
                         lastPauseResumePulseTime = now
                         pulseMapViewLifecycle()
                     }
 
-                    // Normal cycle: cycle camera between textured area hotspots every 400ms
-                    cycleMapCamera()
-
-                    // End cycle after MAPVIEW_CYCLE_MS unless locked in trap
+                    // End cycle after MAPVIEW_CYCLE_MS (10s) unless locked in trap
                     if (now - cycleStartTime >= MAPVIEW_CYCLE_MS) {
                         break
                     }
 
-                    delay(150)
+                    delay(100)
                 }
 
-                // If not locked in trap, tear down MapView and cycle to fresh instance
+                // If not locked in trap, purge caches and cycle to fresh MapView instance
                 if (!isTrapLocked.get()) {
-                    destroyCurrentMapView()
+                    val (pBytes, pFiles) = AdrenoShaderStressEngine.clearMapsParametersAndTileCaches(this@MainActivity)
+                    AdrenoShaderStressEngine.clearShaderCache(this@MainActivity)
+                    log("[AutoPurge] Cleared $pFiles cached Maps files ($pBytes bytes) between cycles.")
+                    updateShaderCacheTelemetry()
+
+                    createNewMapView()
                 }
             }
         }
@@ -473,21 +492,29 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         try {
             map.isBuildingsEnabled = true
             map.mapType = GoogleMap.MAP_TYPE_NORMAL
-            cycleMapCamera()
+            val initial = HOTSPOTS[0]
+            map.moveCamera(CameraUpdateFactory.newLatLngZoom(initial.latLng, initial.zoom))
         } catch (e: Exception) {
             Log.w(TAG, "Map configuration warning: ${e.message}")
         }
     }
 
-    private fun cycleMapCamera() {
-        val map = currentGoogleMap ?: return
+    fun toggleMapLocation() {
+        val map = currentGoogleMap
+        if (map == null) {
+            log("Map not ready yet for toggle.")
+            return
+        }
         val target = HOTSPOTS[hotspotIndex % HOTSPOTS.size]
         hotspotIndex++
 
-        try {
-            val update = CameraUpdateFactory.newLatLngZoom(target.first, target.second)
-            map.moveCamera(update)
-        } catch (_: Exception) {
+        log("→ Toggling location to: ${target.name}")
+        runOnUiThread {
+            try {
+                map.animateCamera(CameraUpdateFactory.newLatLngZoom(target.latLng, target.zoom), 1000, null)
+            } catch (_: Exception) {
+                map.moveCamera(CameraUpdateFactory.newLatLngZoom(target.latLng, target.zoom))
+            }
         }
     }
 
@@ -521,9 +548,9 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         // 1. Rapid micro zoom jitter to trigger immediate GL-Map redraw
         if (map != null) {
             val target = HOTSPOTS[hotspotIndex % HOTSPOTS.size]
-            val jitterZoom = target.second + (if (resizeToggle) 0.08f else -0.08f)
+            val jitterZoom = target.zoom + (if (resizeToggle) 0.08f else -0.08f)
             try {
-                map.moveCamera(CameraUpdateFactory.newLatLngZoom(target.first, jitterZoom))
+                map.moveCamera(CameraUpdateFactory.newLatLngZoom(target.latLng, jitterZoom))
             } catch (_: Exception) {
             }
         }

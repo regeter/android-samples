@@ -148,6 +148,93 @@ class AdrenoShaderStressEngine(
             return deleted
         }
 
+        fun clearMapsParametersAndTileCaches(context: Context): Pair<Long, Int> {
+            val pkg = context.packageName
+            val deContext = runCatching { context.createDeviceProtectedStorageContext() }.getOrNull() ?: context
+            val dataDir = context.dataDir
+
+            val targets = mutableListOf<File>()
+
+            // 1. Client Parameters Disk Cache:
+            // /data/user/0/<package>/files/SavedClientParameters.data.cs
+            targets.add(File(context.filesDir, "SavedClientParameters.data.cs"))
+            targets.add(File(context.filesDir, "DATA_ServerControlledParametersManager.data.v1.$pkg"))
+            targets.add(File(context.filesDir, "_m_t"))
+            targets.add(File(context.filesDir, "profileInstalled"))
+            targets.add(File(deContext.filesDir, "SavedClientParameters.data.cs"))
+
+            // 2. SQLite Vector Tile & Style Cache:
+            // /sdcard/Android/data/<package>/cache/diskcache/map_cache.db
+            context.getExternalCacheDir()?.let { extCache ->
+                targets.add(File(extCache, "diskcache/map_cache.db"))
+                targets.add(File(extCache, "diskcache/map_cache.db-wal"))
+                targets.add(File(extCache, "diskcache/map_cache.db-shm"))
+                targets.add(File(extCache, "diskcache"))
+            }
+            targets.add(File(context.cacheDir, "diskcache/map_cache.db"))
+            targets.add(File(context.cacheDir, "diskcache/map_cache.db-wal"))
+            targets.add(File(context.cacheDir, "diskcache/map_cache.db-shm"))
+            targets.add(File(context.cacheDir, "diskcache"))
+            targets.add(File("/sdcard/Android/data/$pkg/cache/diskcache"))
+
+            // 3. Database Encryption Key:
+            // /data/user/0/<package>/app_testdata/map_cache.key
+            targets.add(File(dataDir, "app_testdata/map_cache.key"))
+            targets.add(File(dataDir, "app_testdata"))
+            targets.add(File(dataDir, "app_/testdata/map_cache.key"))
+            targets.add(File(dataDir, "app_/testdata"))
+            targets.add(File(dataDir, "app_textures"))
+            targets.add(File(dataDir, "app_pccache"))
+            targets.add(File(dataDir, "app_tmppccache"))
+
+            // 4. Crash Breadcrumb Marker & Recovery Trigger:
+            // /data/user/0/<package>/files/_google_maps_sdk_crash_
+            // /data/user/0/<package>/files/_google_maps_sdk_recovery_needed_
+            targets.add(File(context.filesDir, "_google_maps_sdk_crash_"))
+            targets.add(File(context.filesDir, "_google_maps_sdk_recovery_needed_"))
+
+            // 5. Map Tile Cache Canary & Volley caches:
+            // /data/user/0/<package>/cache/map_cache.canary
+            targets.add(File(context.cacheDir, "map_cache.canary"))
+            targets.add(File(context.cacheDir, "com.google.android.gms.maps.volley"))
+            targets.add(File(context.cacheDir, "volley"))
+            targets.add(File(deContext.cacheDir, "map_cache.canary"))
+
+            context.filesDir?.listFiles()?.filter {
+                it.name.contains("parameter", ignoreCase = true) ||
+                it.name.contains("maps", ignoreCase = true) ||
+                it.name.contains("crash", ignoreCase = true) ||
+                it.name.contains("recovery", ignoreCase = true)
+            }?.let { targets.addAll(it) }
+
+            var deletedBytes = 0L
+            var deletedFiles = 0
+            val processed = mutableSetOf<String>()
+
+            for (target in targets) {
+                if (target.exists()) {
+                    val pathKey = runCatching { target.canonicalPath }.getOrDefault(target.absolutePath)
+                    if (processed.add(pathKey)) {
+                        if (target.isDirectory) {
+                            target.walkTopDown().forEach { f ->
+                                if (f.isFile) {
+                                    deletedBytes += f.length()
+                                    deletedFiles++
+                                }
+                            }
+                            target.deleteRecursively()
+                        } else {
+                            deletedBytes += target.length()
+                            deletedFiles++
+                            target.delete()
+                        }
+                    }
+                }
+            }
+            Log.i(TAG, "Purged $deletedFiles cached parameter & map tile files ($deletedBytes bytes)")
+            return Pair(deletedBytes, deletedFiles)
+        }
+
         private fun calculateDirStats(file: File): Pair<Long, Int> {
             if (!file.exists()) return Pair(0L, 0)
             if (file.isFile) return Pair(file.length(), 1)
