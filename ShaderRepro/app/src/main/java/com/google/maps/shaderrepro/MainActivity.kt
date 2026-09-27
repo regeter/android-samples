@@ -65,7 +65,7 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
             LatLng(34.1526, 77.5771) to 14.5f    // Jammu/Kashmir border hatched area
         )
 
-        private const val MAPVIEW_CYCLE_MS = 3500L
+        private const val MAPVIEW_CYCLE_MS = 6000L
         private const val TRAP_WINDOW_MS = 10000L
 
         private const val WEBGL_HTML = """
@@ -172,6 +172,8 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Prevent screen from turning off/locking during reproduction tests
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_main)
 
         bindViews()
@@ -183,7 +185,10 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         // 1. Initialize Maps SDK with LATEST renderer to load maps_core_dynamite (enableTexturedAreas = true)
         MapsInitializer.initialize(applicationContext, MapsInitializer.Renderer.LATEST, this)
 
-        // 2. Initialize AdMob for Mode A
+        // 2. Initialize and display initial MapView immediately
+        createNewMapView()
+
+        // 3. Initialize AdMob for Mode A
         try {
             MobileAds.initialize(this) { status ->
                 log("MobileAds initialized: ${status.adapterStatusMap.keys}")
@@ -191,6 +196,9 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         } catch (e: Exception) {
             Log.e(TAG, "MobileAds initialization error: ${e.message}")
         }
+
+        // 4. Start continuous HUD telemetry updater
+        startHudTelemetry()
     }
 
     private fun bindViews() {
@@ -353,8 +361,6 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
 
         mapLifecycleJob?.cancel()
         mapLifecycleJob = null
-        hudUpdateJob?.cancel()
-        hudUpdateJob = null
         adsStressJob?.cancel()
         adsStressJob = null
 
@@ -362,7 +368,6 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         logcatDetector.stop()
         isTrapLocked.set(false)
 
-        destroyCurrentMapView()
         log("Repro loop stopped.")
     }
 
@@ -455,6 +460,10 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
         mapView.getMapAsync { googleMap ->
             if (currentMapView === mapView) {
                 currentGoogleMap = googleMap
+                log("Map ready: ${googleMap.cameraPosition.target}")
+                googleMap.setOnMapLoadedCallback {
+                    log("Map vector tiles fully loaded.")
+                }
                 configureGoogleMap(googleMap)
             }
         }
@@ -620,9 +629,10 @@ class MainActivity : AppCompatActivity(), OnMapsSdkInitializedCallback {
     // =========================================================================
 
     private fun startHudTelemetry() {
+        if (hudUpdateJob?.isActive == true) return
         hudUpdateJob = lifecycleScope.launch {
             var counter = 0
-            while (isActive && isLoopRunning.get()) {
+            while (isActive) {
                 val now = SystemClock.elapsedRealtime()
 
                 // MapView age

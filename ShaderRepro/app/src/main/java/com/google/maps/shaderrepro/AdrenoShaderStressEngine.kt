@@ -45,31 +45,104 @@ class AdrenoShaderStressEngine(
         private const val TAG = "AdrenoShaderStress"
 
         fun getShaderCacheInfo(context: Context): Pair<Long, Int> {
-            val codeCache = context.codeCacheDir ?: return Pair(0L, 0)
-            val shaderCache = File(codeCache, "com.android.opengl.shaders_cache")
-            return calculateDirStats(shaderCache)
+            val pkg = context.packageName
+            val deContext = runCatching { context.createDeviceProtectedStorageContext() }.getOrNull() ?: context
+            val candidateDirs = listOfNotNull(
+                deContext.codeCacheDir,
+                deContext.cacheDir,
+                context.codeCacheDir,
+                context.cacheDir,
+                File("/data/user_de/0/$pkg/code_cache"),
+                File("/data/user_de/0/$pkg/cache"),
+                File("/data/data/$pkg/code_cache"),
+                File("/data/data/$pkg/cache"),
+                File(context.dataDir, "code_cache"),
+                File(context.dataDir, "cache")
+            ).distinct()
+
+            var totalBytes = 0L
+            var totalFiles = 0
+            val countedPaths = mutableSetOf<String>()
+
+            for (dir in candidateDirs) {
+                if (!dir.exists()) continue
+
+                val targetFiles = listOfNotNull(
+                    File(dir, "com.android.opengl.shaders_cache"),
+                    File(dir, "com.android.skia.shaders_cache")
+                ) + (dir.listFiles()?.filter { f ->
+                    f.isFile && (f.name.contains("shader", ignoreCase = true) || f.name.contains("opengl", ignoreCase = true))
+                } ?: emptyList())
+
+                for (file in targetFiles) {
+                    val pathKey = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+                    if (file.exists() && countedPaths.add(pathKey)) {
+                        val len = file.length()
+                        totalBytes += len
+                        totalFiles++
+                        Log.d(TAG, "Shader cache file: $pathKey ($len bytes)")
+                    }
+                }
+            }
+            return Pair(totalBytes, totalFiles)
         }
 
         fun getCodeCacheTotalInfo(context: Context): Pair<Long, Int> {
-            val codeCache = context.codeCacheDir ?: return Pair(0L, 0)
-            return calculateDirStats(codeCache)
+            val pkg = context.packageName
+            val deContext = runCatching { context.createDeviceProtectedStorageContext() }.getOrNull() ?: context
+            val candidateDirs = listOfNotNull(
+                deContext.codeCacheDir,
+                deContext.cacheDir,
+                context.codeCacheDir,
+                context.cacheDir,
+                File("/data/user_de/0/$pkg/code_cache"),
+                File("/data/user_de/0/$pkg/cache"),
+                File("/data/data/$pkg/code_cache"),
+                File("/data/data/$pkg/cache")
+            ).distinct()
+
+            var totalBytes = 0L
+            var totalFiles = 0
+            val countedPaths = mutableSetOf<String>()
+
+            for (dir in candidateDirs) {
+                if (!dir.exists()) continue
+                dir.walkTopDown().forEach { f ->
+                    if (f.isFile && countedPaths.add(f.canonicalPath)) {
+                        totalBytes += f.length()
+                        totalFiles++
+                    }
+                }
+            }
+            return Pair(totalBytes, totalFiles)
         }
 
         fun clearShaderCache(context: Context): Boolean {
-            val codeCache = context.codeCacheDir ?: return false
+            val pkg = context.packageName
+            val deContext = runCatching { context.createDeviceProtectedStorageContext() }.getOrNull() ?: context
+            val dirs = listOfNotNull(
+                deContext.codeCacheDir,
+                deContext.cacheDir,
+                context.codeCacheDir,
+                context.cacheDir,
+                File("/data/user_de/0/$pkg/code_cache"),
+                File("/data/user_de/0/$pkg/cache"),
+                File("/data/data/$pkg/code_cache"),
+                File("/data/data/$pkg/cache")
+            ).distinct()
+
             var deleted = false
-            val shaderCache = File(codeCache, "com.android.opengl.shaders_cache")
-            if (shaderCache.exists()) {
-                deleted = shaderCache.deleteRecursively()
-            }
-            // Also attempt to remove any driver blob cache in codeCacheDir
-            codeCache.listFiles()?.forEach { file ->
-                if (file.name.contains("shader", ignoreCase = true) ||
-                    file.name.contains("opengl", ignoreCase = true) ||
-                    file.name.contains("qgl", ignoreCase = true)
-                ) {
-                    file.deleteRecursively()
-                    deleted = true
+            for (dir in dirs) {
+                if (!dir.exists()) continue
+                dir.listFiles()?.forEach { file ->
+                    if (file.name.contains("shader", ignoreCase = true) ||
+                        file.name.contains("opengl", ignoreCase = true) ||
+                        file.name.contains("qgl", ignoreCase = true) ||
+                        file.name.contains("skia", ignoreCase = true)
+                    ) {
+                        val ok = runCatching { file.deleteRecursively() }.getOrDefault(false)
+                        deleted = ok || deleted
+                    }
                 }
             }
             return deleted
