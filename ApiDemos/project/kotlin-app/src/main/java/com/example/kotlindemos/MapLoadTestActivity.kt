@@ -6,7 +6,10 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
+import android.webkit.WebView
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
@@ -28,16 +31,26 @@ class MapLoadTestActivity : SamplesBaseActivity() {
     private var currentTilt = 0f
     private var baseZoom = 18.0f
 
+    private var colocationWebView: WebView? = null
+    private lateinit var btnRobustGl: Button
+    private lateinit var btnColocationWebView: Button
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val locationIndex = intent.getIntExtra("LOCATION_INDEX", 0)
         location = LOCATIONS.getOrElse(locationIndex) { LOCATIONS[0] }
 
-        val rootLayout = FrameLayout(this).apply {
+        val rootLayout = FrameLayout(this)
+        setContentView(rootLayout)
+
+        val mapContainer = FrameLayout(this).apply {
             id = View.generateViewId()
         }
-        setContentView(rootLayout)
+        rootLayout.addView(mapContainer, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
 
         chosenMode = intent.getStringExtra("CHOSEN_MODE") ?: listOf("NORMAL", "SATELLITE", "HYBRID", "TERRAIN", "STREET_VIEW").random()
 
@@ -71,7 +84,7 @@ class MapLoadTestActivity : SamplesBaseActivity() {
         if (chosenMode == "STREET_VIEW") {
             val fragment = SupportStreetViewPanoramaFragment.newInstance()
             supportFragmentManager.beginTransaction()
-                .replace(rootLayout.id, fragment)
+                .replace(mapContainer.id, fragment)
                 .commit()
             fragment.getStreetViewPanoramaAsync { panorama ->
                 panorama.setPosition(location.latLng)
@@ -80,7 +93,7 @@ class MapLoadTestActivity : SamplesBaseActivity() {
         } else {
             val fragment = SupportMapFragment.newInstance()
             supportFragmentManager.beginTransaction()
-                .replace(rootLayout.id, fragment)
+                .replace(mapContainer.id, fragment)
                 .commit()
             fragment.getMapAsync { map ->
                 this.googleMap = map
@@ -108,6 +121,110 @@ class MapLoadTestActivity : SamplesBaseActivity() {
         }
 
         statusTextView.bringToFront()
+        setupColocationOverlay(rootLayout)
+    }
+
+    private fun setupColocationOverlay(rootLayout: FrameLayout) {
+        val colocationContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 16, 16, 16)
+        }
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.BOTTOM
+            setMargins(24, 0, 24, 32)
+        }
+        rootLayout.addView(colocationContainer, params)
+
+        btnRobustGl = Button(this).apply {
+            textSize = 12f
+            setPadding(16, 20, 16, 20)
+            setOnClickListener {
+                RobustGlThreadManager.toggle()
+                updateColocationButtonStyles()
+            }
+        }
+        colocationContainer.addView(btnRobustGl)
+
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                12
+            )
+        }
+        colocationContainer.addView(spacer)
+
+        btnColocationWebView = Button(this).apply {
+            textSize = 12f
+            setPadding(16, 20, 16, 20)
+            setOnClickListener {
+                ColocationWebViewManager.isEnabled = !ColocationWebViewManager.isEnabled
+                updateColocationButtonStyles()
+                updateColocationWebView(rootLayout)
+            }
+        }
+        colocationContainer.addView(btnColocationWebView)
+
+        updateColocationButtonStyles()
+        updateColocationWebView(rootLayout)
+
+        colocationContainer.bringToFront()
+    }
+
+    private fun updateColocationButtonStyles() {
+        if (!::btnRobustGl.isInitialized || !::btnColocationWebView.isInitialized) return
+        val glActive = RobustGlThreadManager.isRunning
+        btnRobustGl.text = if (glActive) {
+            "Colocation run openGL with EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT: [ACTIVE]"
+        } else {
+            "Colocation run openGL with EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT"
+        }
+        btnRobustGl.setBackgroundColor(if (glActive) Color.parseColor("#E65100") else Color.parseColor("#CC37474F"))
+        btnRobustGl.setTextColor(Color.WHITE)
+
+        val webActive = ColocationWebViewManager.isEnabled
+        btnColocationWebView.text = if (webActive) {
+            "Colocation run WebView: [ACTIVE]"
+        } else {
+            "Colocation run WebView"
+        }
+        btnColocationWebView.setBackgroundColor(if (webActive) Color.parseColor("#00838F") else Color.parseColor("#CC37474F"))
+        btnColocationWebView.setTextColor(Color.WHITE)
+    }
+
+    private fun updateColocationWebView(rootLayout: FrameLayout) {
+        if (ColocationWebViewManager.isEnabled) {
+            if (colocationWebView == null) {
+                val wv = WebView(this).apply {
+                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                    settings.javaScriptEnabled = true
+                    loadData(
+                        "<html><body style='background:#1b1b1b;color:#00e676;font-family:sans-serif;font-size:10px;margin:4px;'>Colocation WebView (Active)</body></html>",
+                        "text/html",
+                        "UTF-8"
+                    )
+                }
+                val wvParams = FrameLayout.LayoutParams(
+                    (160 * resources.displayMetrics.density).toInt(),
+                    (50 * resources.displayMetrics.density).toInt()
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.END
+                    topMargin = (70 * resources.displayMetrics.density).toInt()
+                    rightMargin = 16
+                }
+                rootLayout.addView(wv, wvParams)
+                wv.bringToFront()
+                colocationWebView = wv
+            }
+        } else {
+            colocationWebView?.let {
+                rootLayout.removeView(it)
+                it.destroy()
+            }
+            colocationWebView = null
+        }
     }
 
     private fun scheduleTiltAndBuildingsActions(map: GoogleMap, supports3DBuildings: Boolean) {
@@ -178,7 +295,9 @@ class MapLoadTestActivity : SamplesBaseActivity() {
             "N/A"
         }
         val tiltStr = if (chosenMode != "STREET_VIEW") "${currentTilt.toInt()}°" else "N/A"
-        statusTextView.text = "Loading...\nLocation: ${location.name}\nMode: $chosenMode\nBuildings: $buildingsStr\nTilt: $tiltStr\nRemaining: ${countdown}s"
+        val robustGlStr = if (RobustGlThreadManager.isRunning) " | RobustGL: ON" else ""
+        val webViewStr = if (ColocationWebViewManager.isEnabled) " | WebView: ON" else ""
+        statusTextView.text = "Loading...\nLocation: ${location.name}\nMode: $chosenMode$robustGlStr$webViewStr\nBuildings: $buildingsStr\nTilt: $tiltStr\nRemaining: ${countdown}s"
     }
 
     private fun startCountdown() {
@@ -199,6 +318,8 @@ class MapLoadTestActivity : SamplesBaseActivity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         googleMap?.stopAnimation()
+        colocationWebView?.destroy()
+        colocationWebView = null
         super.onDestroy()
     }
 

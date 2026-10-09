@@ -31,6 +31,8 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
     private lateinit var statusTextView: TextView
     private lateinit var toggleButton: Button
     private lateinit var slidersContainer: LinearLayout
+    private lateinit var btnRobustGl: Button
+    private lateinit var btnColocationWebView: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,11 +84,52 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
         slidersContainer.addView(createSlider(this, "Terrain Map Weight", terrainWeight) { terrainWeight = it })
         slidersContainer.addView(createSlider(this, "Street View Weight", streetViewWeight) { streetViewWeight = it })
 
+        // Colocation buttons section
+        val colocationContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 24
+                bottomMargin = 24
+            }
+        }
+        rootLayout.addView(colocationContainer)
+
+        btnRobustGl = Button(this).apply {
+            textSize = 12f
+            setPadding(20, 24, 20, 24)
+            setOnClickListener {
+                RobustGlThreadManager.toggle()
+                updateColocationButtons()
+            }
+        }
+        colocationContainer.addView(btnRobustGl)
+
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                16
+            )
+        }
+        colocationContainer.addView(spacer)
+
+        btnColocationWebView = Button(this).apply {
+            textSize = 12f
+            setPadding(20, 24, 20, 24)
+            setOnClickListener {
+                ColocationWebViewManager.isEnabled = !ColocationWebViewManager.isEnabled
+                updateColocationButtons()
+            }
+        }
+        colocationContainer.addView(btnColocationWebView)
+
         statusTextView = TextView(this).apply {
             setTextColor(Color.LTGRAY)
             textSize = 16f
             gravity = Gravity.CENTER
-            setPadding(0, 32, 0, 48)
+            setPadding(0, 24, 0, 32)
         }
         rootLayout.addView(statusTextView)
 
@@ -105,7 +148,29 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
         }
         rootLayout.addView(toggleButton)
 
+        updateColocationButtons()
         updateUI()
+    }
+
+    private fun updateColocationButtons() {
+        if (!::btnRobustGl.isInitialized || !::btnColocationWebView.isInitialized) return
+        val glActive = RobustGlThreadManager.isRunning
+        btnRobustGl.text = if (glActive) {
+            "Colocation run openGL with EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT: [ACTIVE]"
+        } else {
+            "Colocation run openGL with EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT"
+        }
+        btnRobustGl.setBackgroundColor(if (glActive) Color.parseColor("#E65100") else Color.parseColor("#37474F"))
+        btnRobustGl.setTextColor(Color.WHITE)
+
+        val webActive = ColocationWebViewManager.isEnabled
+        btnColocationWebView.text = if (webActive) {
+            "Colocation run WebView: [ACTIVE]"
+        } else {
+            "Colocation run WebView"
+        }
+        btnColocationWebView.setBackgroundColor(if (webActive) Color.parseColor("#00838F") else Color.parseColor("#37474F"))
+        btnColocationWebView.setTextColor(Color.WHITE)
     }
 
     private fun createSlider(
@@ -187,10 +252,12 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
             toggleButton.setBackgroundColor(Color.parseColor("#4CAF50")) // Green
         }
         toggleButton.setTextColor(Color.WHITE)
+        updateColocationButtons()
     }
 
     override fun onResume() {
         super.onResume()
+        updateColocationButtons()
         if (isTestingActive) {
             startNextTest()
         }
