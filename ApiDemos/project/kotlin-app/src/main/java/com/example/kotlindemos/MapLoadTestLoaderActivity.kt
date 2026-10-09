@@ -30,9 +30,12 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
 
     private lateinit var statusTextView: TextView
     private lateinit var toggleButton: Button
+    private lateinit var btnRun10x: Button
+    private lateinit var btnRunOnce: Button
     private lateinit var slidersContainer: LinearLayout
     private lateinit var btnRobustGl: Button
     private lateinit var btnColocationWebView: Button
+    private var targetRemainingRuns = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -137,16 +140,80 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
             textSize = 16f
             setPadding(32, 32, 32, 32)
             setOnClickListener {
-                isTestingActive = !isTestingActive
-                updateUI()
                 if (isTestingActive) {
-                    startNextTest()
-                } else {
+                    isTestingActive = false
+                    targetRemainingRuns = 0
                     handler.removeCallbacksAndMessages(null)
+                    updateUI()
+                } else {
+                    isTestingActive = true
+                    targetRemainingRuns = -1 // continuous
+                    updateUI()
+                    startNextTest()
                 }
             }
         }
         rootLayout.addView(toggleButton)
+
+        val spacer1 = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                16
+            )
+        }
+        rootLayout.addView(spacer1)
+
+        btnRun10x = Button(this).apply {
+            text = "Run Test 10x"
+            textSize = 15f
+            setPadding(24, 28, 24, 28)
+            setBackgroundColor(Color.parseColor("#1976D2")) // Blue
+            setTextColor(Color.WHITE)
+            setOnClickListener {
+                if (isTestingActive && targetRemainingRuns > 0) {
+                    isTestingActive = false
+                    targetRemainingRuns = 0
+                    handler.removeCallbacksAndMessages(null)
+                    updateUI()
+                } else {
+                    isTestingActive = true
+                    targetRemainingRuns = 10
+                    updateUI()
+                    startNextTest()
+                }
+            }
+        }
+        rootLayout.addView(btnRun10x)
+
+        val spacer2 = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                16
+            )
+        }
+        rootLayout.addView(spacer2)
+
+        btnRunOnce = Button(this).apply {
+            text = "Run Test Once"
+            textSize = 15f
+            setPadding(24, 28, 24, 28)
+            setBackgroundColor(Color.parseColor("#7B1FA2")) // Purple
+            setTextColor(Color.WHITE)
+            setOnClickListener {
+                if (isTestingActive && targetRemainingRuns == 1) {
+                    isTestingActive = false
+                    targetRemainingRuns = 0
+                    handler.removeCallbacksAndMessages(null)
+                    updateUI()
+                } else {
+                    isTestingActive = true
+                    targetRemainingRuns = 1
+                    updateUI()
+                    startNextTest()
+                }
+            }
+        }
+        rootLayout.addView(btnRunOnce)
 
         updateColocationButtons()
         updateUI()
@@ -237,21 +304,54 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
     }
 
     private fun updateUI() {
-        val stateText = if (isTestingActive) "ACTIVE" else "PAUSED"
+        val stateText = when {
+            !isTestingActive -> "PAUSED"
+            targetRemainingRuns > 0 -> "RUNNING ($targetRemainingRuns remaining)"
+            else -> "ACTIVE (Continuous)"
+        }
         val nextLocation = MapLoadTestActivity.LOCATIONS[currentIndex].name
         
         statusTextView.text = "Completed Iterations: $iterationCount\nStatus: $stateText\nNext Location: $nextLocation"
         
         if (isTestingActive) {
             slidersContainer.visibility = View.GONE
-            toggleButton.text = "PAUSE TEST"
-            toggleButton.setBackgroundColor(Color.RED)
+            if (targetRemainingRuns == -1) {
+                toggleButton.text = "PAUSE TEST"
+                toggleButton.setBackgroundColor(Color.RED)
+            } else {
+                toggleButton.text = "CANCEL TEST"
+                toggleButton.setBackgroundColor(Color.parseColor("#D32F2F"))
+            }
+
+            if (targetRemainingRuns > 1) {
+                btnRun10x.text = "STOP 10x TEST ($targetRemainingRuns left)"
+                btnRun10x.setBackgroundColor(Color.RED)
+            } else {
+                btnRun10x.text = "Run Test 10x"
+                btnRun10x.setBackgroundColor(Color.parseColor("#1976D2"))
+            }
+
+            if (targetRemainingRuns == 1) {
+                btnRunOnce.text = "RUNNING ONCE..."
+                btnRunOnce.setBackgroundColor(Color.RED)
+            } else {
+                btnRunOnce.text = "Run Test Once"
+                btnRunOnce.setBackgroundColor(Color.parseColor("#7B1FA2"))
+            }
         } else {
             slidersContainer.visibility = View.VISIBLE
             toggleButton.text = "START LOAD TEST"
             toggleButton.setBackgroundColor(Color.parseColor("#4CAF50")) // Green
+
+            btnRun10x.text = "Run Test 10x"
+            btnRun10x.setBackgroundColor(Color.parseColor("#1976D2"))
+
+            btnRunOnce.text = "Run Test Once"
+            btnRunOnce.setBackgroundColor(Color.parseColor("#7B1FA2"))
         }
         toggleButton.setTextColor(Color.WHITE)
+        btnRun10x.setTextColor(Color.WHITE)
+        btnRunOnce.setTextColor(Color.WHITE)
         updateColocationButtons()
     }
 
@@ -287,6 +387,15 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
         if (requestCode == REQUEST_CODE) {
             iterationCount++
             currentIndex = (currentIndex + 1) % MapLoadTestActivity.LOCATIONS.size
+
+            if (targetRemainingRuns > 0) {
+                targetRemainingRuns--
+                if (targetRemainingRuns <= 0) {
+                    isTestingActive = false
+                    targetRemainingRuns = 0
+                }
+            }
+
             updateUI()
         }
     }

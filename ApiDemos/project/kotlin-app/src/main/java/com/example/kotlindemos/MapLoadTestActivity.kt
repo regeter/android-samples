@@ -77,7 +77,7 @@ class MapLoadTestActivity : SamplesBaseActivity() {
             FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
             gravity = Gravity.TOP
-            setMargins(32, 120, 32, 32)
+            setMargins(32, 260, 32, 32)
         }
         rootLayout.addView(statusTextView, textParams)
 
@@ -200,19 +200,41 @@ class MapLoadTestActivity : SamplesBaseActivity() {
                 val wv = WebView(this).apply {
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
                     settings.javaScriptEnabled = true
-                    loadData(
-                        "<html><body style='background:#1b1b1b;color:#00e676;font-family:sans-serif;font-size:10px;margin:4px;'>Colocation WebView (Active)</body></html>",
-                        "text/html",
-                        "UTF-8"
-                    )
+                    setBackgroundColor(Color.parseColor("#1b1b1b"))
+                    val webViewPackage = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        WebView.getCurrentWebViewPackage()?.versionName
+                    } else {
+                        null
+                    }
+                    val versionStr = webViewPackage ?: (settings.userAgentString.let { ua ->
+                        Regex("Chrome/([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "Active"
+                    })
+                    val html = """
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <style>
+                          body { background: #121212; color: #00e676; font-family: sans-serif; font-size: 13px; margin: 0; padding: 10px; box-sizing: border-box; border: 1px solid #333; }
+                          .title { font-weight: bold; font-size: 14px; color: #fff; margin-bottom: 4px; }
+                          .version { color: #64b5f6; font-size: 12px; }
+                        </style>
+                        </head>
+                        <body>
+                          <div class="title">Colocation WebView</div>
+                          <div class="version">WebView: $versionStr</div>
+                        </body>
+                        </html>
+                    """.trimIndent()
+                    loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
                 }
                 val wvParams = FrameLayout.LayoutParams(
-                    (160 * resources.displayMetrics.density).toInt(),
-                    (50 * resources.displayMetrics.density).toInt()
+                    (260 * resources.displayMetrics.density).toInt(),
+                    (80 * resources.displayMetrics.density).toInt()
                 ).apply {
-                    gravity = Gravity.TOP or Gravity.END
-                    topMargin = (70 * resources.displayMetrics.density).toInt()
-                    rightMargin = 16
+                    gravity = Gravity.TOP or Gravity.START
+                    topMargin = (16 * resources.displayMetrics.density).toInt()
+                    leftMargin = (16 * resources.displayMetrics.density).toInt()
                 }
                 rootLayout.addView(wv, wvParams)
                 wv.bringToFront()
