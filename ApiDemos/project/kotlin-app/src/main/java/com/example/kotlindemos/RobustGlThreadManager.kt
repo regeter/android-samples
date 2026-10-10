@@ -108,7 +108,7 @@ object RobustGlThreadManager {
 
                 Log.i(TAG, "Robust EGLContext is now CURRENT on thread. Thread running passively...")
 
-                while (isRunning) {
+                while (isRunning && !Thread.currentThread().isInterrupted) {
                     Thread.sleep(500)
                 }
 
@@ -127,11 +127,15 @@ object RobustGlThreadManager {
                         if (eglSurface != EGL14.EGL_NO_SURFACE) {
                             EGL14.eglDestroySurface(eglDisplay, eglSurface)
                         }
+                        EGL14.eglTerminate(eglDisplay)
                     }
                 } catch (t: Throwable) {
                     Log.w(TAG, "Cleanup exception: ${t.message}")
                 }
-                isRunning = false
+                synchronized(this@RobustGlThreadManager) {
+                    isRunning = false
+                    workerThread = null
+                }
             }
         }, "RobustGlThread").apply {
             isDaemon = true

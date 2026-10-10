@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import kotlin.random.Random
 
 class MapLoadTestLoaderActivity : SamplesBaseActivity() {
@@ -36,6 +37,27 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
     private lateinit var btnRobustGl: Button
     private lateinit var btnColocationWebView: Button
     private var targetRemainingRuns = 0
+
+    private val mapLoadTestLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        iterationCount++
+        currentIndex = (currentIndex + 1) % MapLoadTestActivity.LOCATIONS.size
+
+        if (targetRemainingRuns > 0) {
+            targetRemainingRuns--
+            if (targetRemainingRuns <= 0) {
+                isTestingActive = false
+                targetRemainingRuns = 0
+            }
+        }
+
+        updateUI()
+
+        if (isTestingActive && !isFinishing && !isDestroyed) {
+            startNextTest()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -358,9 +380,6 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
     override fun onResume() {
         super.onResume()
         updateColocationButtons()
-        if (isTestingActive) {
-            startNextTest()
-        }
     }
 
     override fun onPause() {
@@ -377,35 +396,13 @@ class MapLoadTestLoaderActivity : SamplesBaseActivity() {
                     putExtra("LOCATION_INDEX", currentIndex)
                     putExtra("CHOSEN_MODE", chosenMode)
                 }
-                startActivityForResult(intent, REQUEST_CODE)
+                mapLoadTestLauncher.launch(intent)
             }
         }, 1000)
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_CODE) {
-            iterationCount++
-            currentIndex = (currentIndex + 1) % MapLoadTestActivity.LOCATIONS.size
-
-            if (targetRemainingRuns > 0) {
-                targetRemainingRuns--
-                if (targetRemainingRuns <= 0) {
-                    isTestingActive = false
-                    targetRemainingRuns = 0
-                }
-            }
-
-            updateUI()
-        }
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
-    }
-
-    companion object {
-        private const val REQUEST_CODE = 9999
     }
 }

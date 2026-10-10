@@ -1,12 +1,12 @@
 package com.example.kotlindemos
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
-import android.webkit.WebView
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -31,7 +31,7 @@ class MapLoadTestActivity : SamplesBaseActivity() {
     private var currentTilt = 0f
     private var baseZoom = 18.0f
 
-    private var colocationWebView: WebView? = null
+    private var colocationWebView: android.webkit.WebView? = null
     private lateinit var btnRobustGl: Button
     private lateinit var btnColocationWebView: Button
 
@@ -87,6 +87,7 @@ class MapLoadTestActivity : SamplesBaseActivity() {
                 .replace(mapContainer.id, fragment)
                 .commit()
             fragment.getStreetViewPanoramaAsync { panorama ->
+                if (isFinishing || isDestroyed) return@getStreetViewPanoramaAsync
                 panorama.setPosition(location.latLng)
                 startCountdown()
             }
@@ -96,6 +97,7 @@ class MapLoadTestActivity : SamplesBaseActivity() {
                 .replace(mapContainer.id, fragment)
                 .commit()
             fragment.getMapAsync { map ->
+                if (isFinishing || isDestroyed) return@getMapAsync
                 this.googleMap = map
                 map.isBuildingsEnabled = buildingsEnabled
                 map.isTrafficEnabled = Random.nextBoolean()
@@ -197,12 +199,11 @@ class MapLoadTestActivity : SamplesBaseActivity() {
     private fun updateColocationWebView(rootLayout: FrameLayout) {
         if (ColocationWebViewManager.isEnabled) {
             if (colocationWebView == null) {
-                val wv = WebView(this).apply {
+                val wv = android.webkit.WebView(this).apply {
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                    settings.javaScriptEnabled = true
                     setBackgroundColor(Color.parseColor("#1b1b1b"))
                     val webViewPackage = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        WebView.getCurrentWebViewPackage()?.versionName
+                        android.webkit.WebView.getCurrentWebViewPackage()?.versionName
                     } else {
                         null
                     }
@@ -250,7 +251,6 @@ class MapLoadTestActivity : SamplesBaseActivity() {
     }
 
     private fun scheduleTiltAndBuildingsActions(map: GoogleMap, supports3DBuildings: Boolean) {
-        // Start tilt up and zoom out after 1 second
         handler.postDelayed({
             if (isFinishing || isDestroyed) return@postDelayed
             val targetZoomOut = (baseZoom - 0.75f).coerceAtLeast(2.0f)
@@ -260,11 +260,11 @@ class MapLoadTestActivity : SamplesBaseActivity() {
                 .build()
             map.animateCamera(CameraUpdateFactory.newCameraPosition(tiltedUp), 1000, object : GoogleMap.CancelableCallback {
                 override fun onFinish() {
+                    if (isFinishing || isDestroyed) return
                     currentTilt = 60f
                     updateStatus()
 
                     if (supports3DBuildings) {
-                        // Disable 3D buildings, wait 500ms, re-enable 3D buildings, wait 500ms, then tilt down
                         handler.postDelayed({
                             if (isFinishing || isDestroyed) return@postDelayed
                             map.isBuildingsEnabled = false
@@ -302,6 +302,7 @@ class MapLoadTestActivity : SamplesBaseActivity() {
             .build()
         map.animateCamera(CameraUpdateFactory.newCameraPosition(tiltedDown), 1000, object : GoogleMap.CancelableCallback {
             override fun onFinish() {
+                if (isFinishing || isDestroyed) return
                 currentTilt = 0f
                 updateStatus()
             }
@@ -325,10 +326,12 @@ class MapLoadTestActivity : SamplesBaseActivity() {
     private fun startCountdown() {
         handler.postDelayed(object : Runnable {
             override fun run() {
+                if (isFinishing || isDestroyed) return
                 countdown--
                 updateStatus()
 
                 if (countdown <= 0) {
+                    setResult(RESULT_OK)
                     finish()
                 } else {
                     handler.postDelayed(this, 1000)
@@ -340,7 +343,9 @@ class MapLoadTestActivity : SamplesBaseActivity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         googleMap?.stopAnimation()
-        colocationWebView?.destroy()
+        colocationWebView?.let {
+            it.destroy()
+        }
         colocationWebView = null
         super.onDestroy()
     }
